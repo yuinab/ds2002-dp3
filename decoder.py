@@ -16,47 +16,54 @@ def delete_message(handle):
     except ClientError as e:
         print(e.response['Error']['Message'])
 
-def get_messages():
+def process_messages():
+    messages = []  
+    phrase = '' 
     try:
-        # Receive messages from SQS queue
-        response = sqs.receive_message(
-            QueueUrl=url,
-            AttributeNames=['All'],
-            MaxNumberOfMessages=10,
-            MessageAttributeNames=['All']
-        )
+        while True:
+            # Receive messages from SQS queue. Each message has two MessageAttributes: order and word
+            response = sqs.receive_message(
+                QueueUrl=url,
+                AttributeNames=[
+                    'All'
+                ],
+                MaxNumberOfMessages=10,  # Retrieve 10 messages at once
+                MessageAttributeNames=[
+                    'All'
+                ]
+            )
+           
+            # Check if there are messages in the queue or not
+            if "Messages" in response:
+                for message in response['Messages']:
+                    # extract the message attributes you want to use as variables
+                    order = message['MessageAttributes']['order']['StringValue']
+                    word = message['MessageAttributes']['word']['StringValue']
+                    handle = message['ReceiptHandle']
 
-        # Check if there are messages in the response
-        if 'Messages' in response:
-            messages = response['Messages']
-            print(f"Received {len(messages)} messages:")
-            word_pairs = []  # List to store word pairs
-            for message in messages:
-                # Extract message attributes
-                order = int(message['MessageAttributes']['order']['StringValue'])
-                word = message['MessageAttributes']['word']['StringValue']
+                    # store
+                    messages.append({'order': order, 'word': word, 'handle': handle})
 
-                # Print message attributes
-                print(f"Order: {order}, Word: {word}")
+                # delete
+                for msg in messages:
+                    delete_message(msg['handle'])
 
-                # Append the word pair to the list
-                word_pairs.append((order, word))
+                
+                phrase = ' '.join([msg['word'] for msg in sorted(messages, key=lambda x: int(x['order']))])
+            
 
-            # Sort the word pairs based on the order
-            sorted_word_pairs = sorted(word_pairs, key=lambda x: x[0])
-            print("Sorted Word Pairs:")
-            for order, word in sorted_word_pairs:
-                print(f"Order: {order}, Word: {word}")
-
-            # delete
-            for message in messages:
-                delete_message(message['ReceiptHandle'])
-
-        else:
-            print("No messages received from the queue.")
+            # If there are no messages in the queue, break the loop
+            else:
+                print("No messages in the queue")
+                break
+            
+    # Handle any errors that may occur connecting to SQS
     except ClientError as e:
-        print("Error receiving messages:", e)
+        print(e.response['Error']['Message'])
+    
+    return phrase  
 
 # Trigger the function
 if __name__ == "__main__":
-    get_messages()
+    assembled_phrase = process_messages()  
+    print("Assembled phrase:", assembled_phrase)  
